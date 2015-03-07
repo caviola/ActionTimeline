@@ -1,6 +1,6 @@
 # What is an ActionTimeline?
 
-An ActionTimeline allows you to coordinate the execution of asynchronous operations like DOM animations. A trivial use case would be:
+An ActionTimeline allows you to create workflows of asynchronous operations. It was originally developed to coordinate the execution of DOM animations. A trivial use case would be:
 
 1. move a box to the left in 2 seconds
 2. wait 2 seconds
@@ -18,21 +18,23 @@ An ActionTimeline consists of a custom sequence of the following primitive opera
 - **launch(fn|ActionTimeline):** Call a function or start another ActionTimeline and immediately advance to the next action. This is typically used to initiate an asynchronous operation. The side effect of this action is that completion callbacks won't be called until all "launched" functions and/or ActionTimelines have notified that they have finished.
 - **after(fn):** Registers a completion callback to be called when there are no more actions to execute and all pending "launched" actions have finished.
 
-Note that ActionTimeline is not limited to DOM animations. With **wait(...)** and **launch(..)** you can initiate any asynchronous operation like AJAX requests. It's also through these primitives that you can chain into another ActionTimeline. This allows for complex asynchronous workflows.
+Note that ActionTimeline is not limited to DOM animations. With **wait(...)** and **launch(..)** you can initiate any asynchronous operation like AJAX requests. It's also through these primitives that you can chain into another ActionTimeline. This posibility allows for the implementation of complex workflows.
 
 The code for the above use case would be:
 
-    new ActionTimeline()
-        .animate([[box1, "left:0", {duration:2000}]])
-        .sleep(2000)
-        .animate([[box1, "top:200px", {duration:2000}]])
-        .animate([[box2, "left:150px; width:200px; opacity:0.5", {duration:2000}]])
-        .sleep(2000)
-        .animate([
-            [box1, "top:0px; left:0px;", {duration:1000}],
-            [box2, "top:0px; left:0px;", {duration:1000}]
-        ])
-        .play();    
+```js
+new ActionTimeline()
+    .animate([[box1, "left:0", {duration:2000}]])
+    .sleep(2000)
+    .animate([[box1, "top:200px", {duration:2000}]])
+    .animate([[box2, "left:150px; width:200px; opacity:0.5", {duration:2000}]])
+    .sleep(2000)
+    .animate([
+        [box1, "top:0px; left:0px;", {duration:1000}],
+        [box2, "top:0px; left:0px;", {duration:1000}]
+    ])
+    .play();    
+```
 
 ## Notes
 
