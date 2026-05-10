@@ -24,18 +24,18 @@ The code for the above use case would be:
 
 ```js
 new ActionTimeline()
-    .animate([[box1, "left:0", {duration:2000}]])
-    .sleep(2000)
-    .animate([[box1, "top:200px", {duration:2000}]])
-    .animate([[box2, "left:150px; width:200px; opacity:0.5", {duration:2000}]])
-    .sleep(2000)
-    .animate([
-        [box1, "top:0px; left:0px;", {duration:1000}],
-        [box2, "top:0px; left:0px;", {duration:1000}]
-    ])
-    .play();    
+  .animate([[box1, 'left:0', { duration: 2000 }]])
+  .sleep(2000)
+  .animate([[box1, 'top:200px', { duration: 2000 }]])
+  .animate([[box2, 'left:150px; width:200px; opacity:0.5', { duration: 2000 }]])
+  .sleep(2000)
+  .animate([
+    [box1, 'top:0px; left:0px;', { duration: 1000 }],
+    [box2, 'top:0px; left:0px;', { duration: 1000 }],
+  ])
+  .play();
 ```
 
 ## Notes
 
-The ActionTimeline is implemented using a queue and a state machine. Besides, it relies on the [Emile](https://github.com/madrobby/emile) library for CSS property animations. Note that for Emile animations to work the CSS property you are animating must have an initial value. The implementation also assumes *Function.bind()* is already defined.
+The ActionTimeline is implemented using a queue and a state machine. Besides, it relies on the [Emile](https://github.com/madrobby/emile) library for CSS property animations. Note that for Emile animations to work the CSS property you are animating must have an initial value.

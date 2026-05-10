@@ -1,7 +1,7 @@
-/** 
+/**
  * The MIT License
  *
- * Copyright (c) 2013 Albert Almeida (caviola@gmail.com)
+ * Copyright (c) 2013-2026 Albert Almeida (caviola@gmail.com)
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -22,235 +22,213 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-(function(name, container){
-	var /** @const */READY    = 0,
-	    /** @const */PLAYING  = 1,
-	    /** @const */WAITING  = 2,
-	    /** @const */STOPPING = 3,
+import emile from './emile.min.js';
 
-	    /** @const */NODE     = 0,
-	    /** @const */STYLES   = 1,
-	    /** @const */OPTIONS  = 2;
+export default class ActionTimeline {
+  constructor() {
+    this.queue = [];
+    this.queueLength = 0;
+    this.queuePosition = 0;
+    this.pendingLaunches = 0;
+    this.pendingAnimations = 0;
+    this.afters = [];
+    this.state = 'ready';
+  }
 
-	function _ActionTimeline(name) {
-		this.name = name;
-		this.queue = [];
-		this.queueLength = 0;
-		this.queuePosition = 0;
-		this.pendingLaunches = 0;
-		this.afters = [];
-		this.state = READY;
-		return this;
-	}
+  _scheduleNextAction(afterMilliseconds = 0) {
+    ++this.queuePosition;
+    setTimeout(() => this._actionCallback(), afterMilliseconds);
+  }
 
-	_ActionTimeline.READY    = READY;
-	_ActionTimeline.PLAYING  = PLAYING;
-	_ActionTimeline.WAITING  = WAITING;
-	_ActionTimeline.STOPPING = STOPPING;
+  /**
+   * This function is called asynchronously with setTimeout() to execute
+   * the action at the current queue position.
+   * The code branch that handles each type of action is responsible for
+   * recalling this function when appropriate to execute the next action.
+   * For example, the code that handles the "sleep" action recalls this function
+   * after M milliseconds.
+   */
+  _actionCallback() {
+    if (this.state === 'stopping') {
+      // Change to READY state only if all pending "launches" have finished.
+      if (!this.pendingLaunches) this._ready();
+      return;
+    }
 
-	/**
-	 * This function is called asynchronously with setTimeout() to execute
-	 * the action at the current queue positon.
-	 * The code branch that handles each type of action is responsible for
-	 * recalling this function when appropriate to execute the next action.
-	 * For example, the code that handles the "sleep" action recalls this function
-	 * after M milliseconds.
-	 */
-	_ActionTimeline.prototype._actionCallback = function() {
-		if (this.state === STOPPING) {
-			// Change to READY state only if all pending "launches" have finished.
-			!this.pendingLaunches && this._ready();
-			return;
-		}
+    // If reached the end of the queue we have no actions to execute and
+    // we return to the caller.
+    if (this.queuePosition >= this.queueLength) {
+      if (!this.pendingLaunches) this._finished();
+      return;
+    }
 
-		// If reached the end of the queue we have no actions to execute and
-		// we return to the caller.
-		if (this.queuePosition >= this.queueLength) {
-			!this.pendingLaunches && this._finished();
-			return;
-		}
+    const action = this.queue[this.queuePosition];
 
-		var action = this.queue[this.queuePosition];
+    if (action.sleep) {
+      this._scheduleNextAction(action.sleep);
+    } else if (action.call) {
+      action.call();
+      this._scheduleNextAction();
+    } else if (action.animations) {
+      this.pendingAnimations = action.animations.length;
+      if (this.pendingAnimations) {
+        // Start all animations in the set in parallel delaying a given animation
+        // if requested.
+        for (const [node, styles, options] of action.animations) {
+          if (options?.delay) {
+            setTimeout(() => {
+              emile(node, styles, options, () => this._doneAnimationCallback());
+            }, options.delay);
+          } else {
+            emile(node, styles, options, () => this._doneAnimationCallback());
+          }
+        }
+      } else {
+        this._scheduleNextAction();
+      }
+    } else if (action.launch) {
+      ++this.pendingLaunches;
+      // If we are "launching" another ActionTimeline, add a completion
+      // callback to it so that we are notified when it finishes and
+      // then start it.
+      if (action.launch instanceof ActionTimeline) {
+        action.launch.after(() => this._doneLaunchCallback()).play();
+      } else {
+        action.launch(() => this._doneLaunchCallback());
+      }
+      this._scheduleNextAction();
+    } else if (action.wait) {
+      this.state = 'waiting';
 
-		if (action.sleep) {
-			// Advance to next action and recall us after "sleep" milliseconds.
-			++this.queuePosition;
-			setTimeout(this._actionCallback.bind(this), action.sleep);
-		} else if (action.call) {
-			// Call user function, advance to next action and recall us asap.
-			(action.call)();
-			++this.queuePosition;
-			setTimeout(this._actionCallback.bind(this), 0);
-		} else if (action.animations) {
-			// Start all animations in the set in parallel delaying a given animation
-			// if requested.
-			action.pendingAnimations = action.animations.length;
-			for(var i = 0, a; i < action.pendingAnimations && (a = action.animations[i]); i++) {
-				if (a[OPTIONS] && a[OPTIONS].delay) {
-					setTimeout(function(){
-						emile(a[NODE], a[STYLES], a[OPTIONS], this._afterAnimationCallback.bind(this));
-					}.bind(this), a[OPTIONS].delay);
-				} else {
-					emile(a[NODE], a[STYLES], a[OPTIONS], this._afterAnimationCallback.bind(this));
-				}
-			}
-		} else if (action.launch) {
-			++this.pendingLaunches;
-			// If we are "launching" another ActionTimeline, add a completion
-			// callback to it so that we are notified when it finishes and
-			// then start it.
-			if (action.launch instanceof ActionTimeline) {
-				action.launch.
-					after(this._notifyLaunch.bind(this)).
-					play();
-			} else {
-				(action.launch)(_notifyLaunch.bind(this));
-			}
-			// Advance to the next action.
-			++this.queuePosition;
-			setTimeout(this._actionCallback.bind(this), 0);
-		} else if (action.wait) {
-			this.state = WAITING;
-			
-			// Move the pointer to the next action now so that if we are
-			// stopped/restarted while waiting we continue with the next action.
-			++this.queuePosition;
+      // Move the pointer to the next action now so that if we are
+      // stopped/restarted while waiting we continue with the next action.
+      ++this.queuePosition;
 
-			// If we are "waiting" for another ActionTimeline, add a completion
-			// callback to it so that we are notified when it finishes and
-			// then start it.
-			if (action.wait instanceof ActionTimeline) {
-				action.wait.
-					after(this._notifyWait.bind(this)).
-					play();
-			} else {
-				(action.wait)(this._notifyWait.bind(this));
-			}
-		}
-	};
+      // If we are "waiting" for another ActionTimeline, add a completion
+      // callback to it so that we are notified when it finishes and
+      // then start it.
+      if (action.wait instanceof ActionTimeline) {
+        action.wait.after(() => this._doneWaitCallback()).play();
+      } else {
+        action.wait(() => this._doneWaitCallback());
+      }
+    }
+  }
 
-	/**
-	 * This will be called after the completion of each animation in the current
-	 * set to decrement the "animations left" counter.
-	 * When it reaches zero, we move on to next action.
-	 */
-	_ActionTimeline.prototype._afterAnimationCallback = function() {
-		if (--this.queue[this.queuePosition].pendingAnimations)
-			return; // we still have pending animations in the set
+  /**
+   * This will be called after the completion of each animation in the current
+   * set to decrement the "animations left" counter.
+   * When it reaches zero, we move on to next action.
+   */
+  _doneAnimationCallback() {
+    if (--this.pendingAnimations) return; // we still have pending animations in the set
 
-		// At this point all parallel animations in the set have finished.
-		
-		if (this.state === STOPPING) {
-			// Change to READY state only if all pending "launches" have finished.
-			!this.pendingLaunches && this._ready();
-		} else {
-			// Advance to next action.
-			++this.queuePosition;
-			setTimeout(this._actionCallback.bind(this), 0);
-		}
-	};
+    // At this point all parallel animations in the set have finished.
 
-	_ActionTimeline.prototype._notifyLaunch = function() {
-		if (--this.pendingLaunches) // are there pending "launches"?
-			return;
+    if (this.state === 'stopping') {
+      // Change to READY state only if all pending "launches" have finished.
+      if (!this.pendingLaunches) this._ready();
+    } else {
+      this._scheduleNextAction();
+    }
+  }
 
-		// At this point all pending "launches" have finished.
-		// If we are stopping, we now can safely change to READY state.
-		if (this.state === STOPPING) {
-			this._ready();
-			return;
-		}
+  _doneLaunchCallback() {
+    // are there pending "launches"?
+    if (--this.pendingLaunches) return;
 
-		if (this.queuePosition >= this.queueLength) {
-			this._finished();
-		}
-	};
+    // At this point all pending "launches" have finished.
+    // If we are stopping, we now can safely change to READY state.
+    if (this.state === 'stopping') {
+      this._ready();
+      return;
+    }
 
-	_ActionTimeline.prototype._notifyWait = function() {
-		// If we are not stopping, continue with the next action.
-		if (this.state !== STOPPING) {
-			this.state = PLAYING;
-			setTimeout(this._actionCallback.bind(this), 0);
-		} else {
-			// We are stopping.
-			// Change to READY state only if all pending "launches" have finished.
-			!this.pendingLaunches && this._ready();
-		}
-	};
+    if (this.queuePosition >= this.queueLength) {
+      this._finished();
+    }
+  }
 
-	_ActionTimeline.prototype._ready = function() {
-		this.state = READY;
-	};
+  _doneWaitCallback() {
+    // If we are not stopping, continue with the next action.
+    if (this.state !== 'stopping') {
+      this.state = 'playing';
+      setTimeout(() => this._actionCallback(), 0);
+    } else {
+      // We are stopping.
+      // Change to READY state only if all pending "launches" have finished.
+      if (!this.pendingLaunches) this._ready();
+    }
+  }
 
-  	/**
-	 * This function is called when we have executed all actions in the timeline.
-	 */
-	_ActionTimeline.prototype._finished = function() {
-		// Execute all "after" callbacks.
-		for(var i = 0, len = this.afters.length; i < len; i++) {
-			this.afters[i] && (this.afters[i])(this);
-		}
-		this.rewind();
-		this._ready();
-	};
+  _ready() {
+    this.state = 'ready';
+  }
 
-	_ActionTimeline.prototype.call = function(fn, args) {
-		this.queue.push({call: fn});
-		return this;
-	};
+  /**
+   * This function is called when we have executed all actions in the timeline.
+   */
+  _finished() {
+    // Execute all "after" callbacks.
+    this.afters.forEach((after) => after(this));
+    this.afters = [];
+    this.rewind();
+    this._ready();
+  }
 
-	_ActionTimeline.prototype.wait = function(fn) {
-		this.queue.push({wait: fn});
-		return this;
-	};
+  call(fn) {
+    this.queue.push({ call: fn });
+    return this;
+  }
 
-	_ActionTimeline.prototype.launch = function(fn) {
-		this.queue.push({launch: fn});
-		return this;
-	};
+  wait(fn) {
+    this.queue.push({ wait: fn });
+    return this;
+  }
 
-	_ActionTimeline.prototype.animate = function(anims) {
-		this.queue.push({animations: anims});
-		return this;
-	};
+  launch(fn) {
+    this.queue.push({ launch: fn });
+    return this;
+  }
 
-	_ActionTimeline.prototype.sleep = function(milliseconds) {
-		this.queue.push({sleep: milliseconds});
-		return this;
-	};
+  animate(anims) {
+    this.queue.push({ animations: anims });
+    return this;
+  }
 
-	_ActionTimeline.prototype.after = function(fn) {
-		this.afters.push(fn);
-		return this;
-	};
+  sleep(milliseconds) {
+    this.queue.push({ sleep: milliseconds });
+    return this;
+  }
 
-	_ActionTimeline.prototype.play = function() {
-		if (this.state !== READY)
-			return false;
+  after(fn) {
+    this.afters.push(fn);
+    return this;
+  }
 
-		this.queueLength = this.queue.length;
-		if (!this.queueLength)
-			return false;
+  play() {
+    if (this.state !== 'ready') return false;
 
-		this.state = PLAYING;
-		setTimeout(this._actionCallback.bind(this), 0);
+    this.queueLength = this.queue.length;
 
-		return true;
-	};
+    this.state = 'playing';
+    setTimeout(() => this._actionCallback(), 0);
 
-	_ActionTimeline.prototype.stop = function() {
-		if (this.state !== PLAYING && this.state !== WAITING)
-			return false;
+    return true;
+  }
 
-		this.state = STOPPING;
-		return true;
-	};
+  stop() {
+    if (this.state !== 'playing' && this.state !== 'waiting') return false;
 
-	_ActionTimeline.prototype.rewind = function() {
-		this.stop();
-		this.queuePosition = 0;
-	};
+    this.state = 'stopping';
+    return true;
+  }
 
-	container[name] = _ActionTimeline;
-
-})("ActionTimeline", this);
+  rewind() {
+    if (this.stop()) {
+      this.queuePosition = 0;
+      return true;
+    }
+    return false;
+  }
+}
