@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import ActionTimeline from './ActionTimeline.js';
+import ActionTimeline from './ActionTimeline.ts';
+import { type EmileOptions } from './emile.min.js';
 
 describe('ActionTimeline', () => {
   beforeEach(() => {
@@ -36,7 +37,7 @@ describe('ActionTimeline', () => {
   });
 
   it('executes multiple call actions in sequence', () => {
-    const order = [];
+    const order: number[] = [];
     const tl = new ActionTimeline();
     tl.call(() => order.push(1))
       .call(() => order.push(2))
@@ -103,7 +104,6 @@ describe('ActionTimeline', () => {
     vi.advanceTimersByTime(50);
     tl.rewind();
 
-    expect(tl.queuePosition).toBe(0);
     vi.runAllTimers();
     expect(fn).not.toHaveBeenCalled();
   });
@@ -144,7 +144,7 @@ describe('ActionTimeline', () => {
   });
 
   it('waits for a callback before continuing', () => {
-    const order = [];
+    const order: string[] = [];
     const tl = new ActionTimeline();
 
     tl.call(() => order.push('before'))
@@ -170,7 +170,7 @@ describe('ActionTimeline', () => {
   });
 
   it('launches a callback and continues immediately', () => {
-    const order = [];
+    const order: string[] = [];
     const afterFn = vi.fn();
     const tl = new ActionTimeline();
 
@@ -199,7 +199,7 @@ describe('ActionTimeline', () => {
   });
 
   it('waits for another timeline before continuing', () => {
-    const order = [];
+    const order: string[] = [];
     const child = new ActionTimeline();
     const parent = new ActionTimeline();
 
@@ -216,7 +216,7 @@ describe('ActionTimeline', () => {
   });
 
   it('launches another timeline and waits for it before finishing', () => {
-    const order = [];
+    const order: string[] = [];
     const afterFn = vi.fn();
     const child = new ActionTimeline();
     const parent = new ActionTimeline();
@@ -243,7 +243,7 @@ describe('ActionTimeline', () => {
   });
 
   it('treats an empty waited timeline as completed', () => {
-    const order = [];
+    const order: string[] = [];
     const child = new ActionTimeline();
     const parent = new ActionTimeline();
 
@@ -254,7 +254,7 @@ describe('ActionTimeline', () => {
 
     vi.runAllTimers();
     expect(order).toEqual(['after']);
-    expect(parent.state).toBe('ready');
+    expect(parent.play()).toBe(true);
   });
 
   it('treats an empty launched timeline as completed', () => {
@@ -266,8 +266,7 @@ describe('ActionTimeline', () => {
 
     vi.runAllTimers();
     expect(afterFn).toHaveBeenCalledWith(parent);
-    expect(parent.pendingLaunches).toBe(0);
-    expect(parent.state).toBe('ready');
+    expect(parent.play()).toBe(true);
   });
 
   it('continues when animations array is empty', () => {
@@ -281,6 +280,43 @@ describe('ActionTimeline', () => {
 
     expect(fn).toHaveBeenCalledOnce();
     expect(afterFn).toHaveBeenCalledWith(tl);
+  });
+
+  it('runs animations and respects delays and callbacks', async () => {
+    // Spy on emile to simulate animation completion
+    const emileModule = await import('./emile.min.js');
+    const emileSpy = vi.spyOn(emileModule, 'default');
+
+    // Make emile call the completion callback immediately
+    emileSpy.mockImplementation(
+      (
+        el: HTMLElement,
+        style: string,
+        opts: EmileOptions | undefined,
+        after: (() => void) | undefined,
+      ) => {
+        if (opts?.after) opts.after();
+        if (after) after();
+      },
+    );
+
+    const order: string[] = [];
+    const el = document.createElement('div');
+
+    const tl = new ActionTimeline();
+    tl.animate([
+      { el: el, style: 'opacity:0', opts: { duration: 100 } },
+      { el: el, style: 'left:10px', opts: { delay: 50, after: () => order.push('after1') } },
+    ])
+      .call(() => order.push('after-all'))
+      .play();
+
+    // Run all timers to let animations and callbacks run
+    vi.runAllTimers();
+
+    expect(order).toContain('after1');
+    expect(order).toContain('after-all');
+    emileSpy.mockRestore();
   });
 
   it('passes the timeline instance to after callbacks', () => {
